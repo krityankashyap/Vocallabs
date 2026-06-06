@@ -1,0 +1,13 @@
+# secrets — never commit
+.env
+.env.example
+
+# deps & build
+node_modules/
+dist/
+
+# editor / OS
+.DS_Store
+*.local
+
+.claude/
