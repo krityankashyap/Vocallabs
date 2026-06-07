@@ -4,16 +4,21 @@ import { config } from "../config.js";
 import type { Company, Contact } from "../types.js";
 
 const BASE_URL = "https://api.prospeo.io";
-const CONCURRENCY = 3;
-// Max pages per domain — keeps credit spend predictable (3 × 25 = 75 contacts max per company)
+// Outer concurrency: simultaneous company fan-outs
+const COMPANY_CONCURRENCY = 3;
+// Inner concurrency: simultaneous enrich calls per batch
+const ENRICH_CONCURRENCY = 5;
 const MAX_PAGES = 3;
 
 const SENIORITIES = ["C-Suite", "Vice President", "Founder/Owner", "Director"];
 
+// ── API types ─────────────────────────────────────────────────────────────────
+
 interface ProspeoPersonRecord {
   person: {
-    name?: string;
-    title?: string;
+    person_id?: string;
+    full_name?: string;
+    current_job_title?: string;
     linkedin_url?: string;
   };
   company?: {
@@ -34,6 +39,20 @@ interface ProspeoSearchResponse {
   };
 }
 
+interface ProspeoEnrichResponse {
+  error: boolean;
+  message?: string;
+  person?: {
+    email?: {
+      status?: string;
+      revealed?: boolean;
+      email?: string;
+    };
+  };
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function authHeaders() {
   return { "X-KEY": config.prospeoApiKey };
 }
@@ -41,6 +60,8 @@ function authHeaders() {
 function stripWww(domain: string): string {
   return domain.replace(/^www\./, "");
 }
+
+// ── Search (step 1 of 2) ──────────────────────────────────────────────────────
 
 async function fetchPage(domain: string, page: number): Promise<ProspeoSearchResponse> {
   return postJson<ProspeoSearchResponse>(
@@ -60,79 +81,113 @@ async function fetchPage(domain: string, page: number): Promise<ProspeoSearchRes
   );
 }
 
-async function contactsForDomain(company: Company): Promise<Contact[]> {
+// ── Enrich (step 2 of 2) — get email by person_id ────────────────────────────
+
+async function fetchEmail(personId: string): Promise<string | null> {
+  try {
+    const res = await postJson<ProspeoEnrichResponse>(
+      `${BASE_URL}/enrich-person`,
+      { data: { person_id: personId }, only_verified_email: false },
+      { headers: authHeaders() }
+    );
+
+    if (res.error) {
+      console.warn(`  [prospeo] enrich error for person_id ${personId}: ${res.message ?? "unknown"}`);
+      return null;
+    }
+
+    const email = res.person?.email?.email;
+    return email ?? null;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`  [prospeo] enrich failed for person_id ${personId}: ${message}`);
+    return null;
+  }
+}
+
+// ── Per-company pipeline ──────────────────────────────────────────────────────
+
+async function contactsForDomain(company: Company, enrichLimit: ReturnType<typeof pLimit>): Promise<Contact[]> {
   const domain = company.domain;
-  const contacts: Contact[] = [];
+  const rawRecords: ProspeoPersonRecord[] = [];
 
   try {
-    // Fetch first page to learn total_page count
     const first = await fetchPage(domain, 1);
 
     if (first.error) {
-      console.warn(`  [prospeo] API error for ${domain}: ${first.message ?? "unknown"}`);
+      console.warn(`  [prospeo] search error for ${domain}: ${first.message ?? "unknown"}`);
       return [];
     }
 
-    const records = first.results ?? [];
     const totalPages = Math.min(first.pagination?.total_page ?? 1, MAX_PAGES);
-
     console.log(
-      `  [prospeo] ${domain} — ${first.pagination?.total_count ?? records.length} total match(es), ` +
+      `  [prospeo] ${domain} — ${first.pagination?.total_count ?? (first.results?.length ?? 0)} match(es), ` +
         `fetching ${totalPages} page(s)`
     );
 
-    for (const record of records) {
-      const contact = toContact(record, domain);
-      if (contact) contacts.push(contact);
-    }
+    rawRecords.push(...(first.results ?? []));
 
-    // Fetch remaining pages sequentially (avoid hammering rate limits)
     for (let page = 2; page <= totalPages; page++) {
       const resp = await fetchPage(domain, page);
       if (resp.error) {
-        console.warn(`  [prospeo] error on page ${page} for ${domain} — stopping pagination`);
+        console.warn(`  [prospeo] error on page ${page} for ${domain} — stopping`);
         break;
       }
-      for (const record of resp.results ?? []) {
-        const contact = toContact(record, domain);
-        if (contact) contacts.push(contact);
-      }
+      rawRecords.push(...(resp.results ?? []));
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`  [prospeo] skipping ${domain}: ${message}`);
+    return [];
   }
 
-  return contacts;
+  // Fan-out enrich calls concurrently, skip anyone whose email can't be resolved
+  const enrichTasks = rawRecords.map((record) =>
+    enrichLimit(async (): Promise<Contact | null> => {
+      const { person } = record;
+      const { person_id, full_name, current_job_title, linkedin_url } = person;
+
+      if (!person_id || !full_name || !current_job_title) {
+        console.warn(
+          `  [prospeo] skipping incomplete record for ${domain}: ` +
+            `id=${person_id ?? "—"} name=${full_name ?? "—"} title=${current_job_title ?? "—"}`
+        );
+        return null;
+      }
+
+      const email = await fetchEmail(person_id);
+      if (!email) {
+        console.warn(`  [prospeo] no email resolved for ${full_name} (${domain}) — skipping`);
+        return null;
+      }
+
+      return {
+        name: full_name,
+        title: current_job_title,
+        linkedinUrl: linkedin_url ?? "",
+        domain,
+        email,
+      };
+    })
+  );
+
+  const settled = await Promise.all(enrichTasks);
+  return settled.filter((c): c is Contact => c !== null);
 }
 
-function toContact(record: ProspeoPersonRecord, domain: string): Contact | null {
-  const { person } = record;
-  if (!person.name || !person.title || !person.linkedin_url) {
-    console.warn(
-      `  [prospeo] skipping incomplete record for ${domain}: ` +
-        `name=${person.name ?? "—"} title=${person.title ?? "—"} linkedin=${person.linkedin_url ?? "—"}`
-    );
-    return null;
-  }
-  return {
-    name: person.name,
-    title: person.title,
-    linkedinUrl: person.linkedin_url,
-    domain,
-  };
-}
+// ── Stage 2 export ────────────────────────────────────────────────────────────
 
 export async function findContacts(companies: Company[]): Promise<Contact[]> {
-  const limit = pLimit(CONCURRENCY);
+  const companyLimit = pLimit(COMPANY_CONCURRENCY);
+  const enrichLimit = pLimit(ENRICH_CONCURRENCY);
 
   const results = await Promise.all(
-    companies.map((c) =>
-      limit(() => contactsForDomain(c))
-    )
+    companies.map((c) => companyLimit(() => contactsForDomain(c, enrichLimit)))
   );
 
   const all = results.flat();
-  console.log(`  [prospeo] ${all.length} contact(s) found across ${companies.length} company/companies`);
+  console.log(
+    `  [prospeo] ${all.length} contact(s) with verified emails across ${companies.length} company/companies`
+  );
   return all;
 }

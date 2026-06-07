@@ -1,7 +1,6 @@
 import type { Contact, SendResult } from "./types.js";
 import { findLookalikes } from "./stages/ocean.js";
 import { findContacts } from "./stages/prospeo.js";
-import { enrichWithEmails } from "./stages/eazyreach.js";
 import { sendEmails } from "./stages/brevo.js";
 
 export interface PipelineOptions {
@@ -14,7 +13,6 @@ export interface PipelineOptions {
 export interface PipelineResult {
   companies: number;
   contacts: number;
-  enriched: number;
   results: SendResult[];
 }
 
@@ -46,40 +44,35 @@ export async function runPipeline(
   console.log(`  → ${companies.length} companies found`);
 
   // ── Stage 2: Prospeo ───────────────────────────────────────────────────────
-  console.log("\n━━━ Stage 2 / Prospeo — finding decision-makers ━━━");
+  console.log("\n━━━ Stage 2 / Prospeo — finding decision-makers + emails ━━━");
   const contacts = await findContacts(companies);
-  console.log(`  → ${contacts.length} contacts found`);
-
-  // ── Stage 3: Eazyreach ─────────────────────────────────────────────────────
-  console.log("\n━━━ Stage 3 / Eazyreach — enriching with work emails ━━━");
-  const enriched = await enrichWithEmails(contacts);
-  const dedupedContacts = dedupeByEmail(enriched);
+  const dedupedContacts = dedupeByEmail(contacts);
   console.log(`  → ${dedupedContacts.length} contacts with verified emails (after dedupe)`);
 
   if (dedupedContacts.length === 0) {
     console.warn("  [pipeline] no contacts with emails — nothing to send");
-    return { companies: companies.length, contacts: contacts.length, enriched: 0, results: [] };
+    return { companies: companies.length, contacts: 0, results: [] };
   }
 
   // ── Safety checkpoint (injected from index.ts) ─────────────────────────────
   if (dryRun) {
     console.log("\n  --dry-run: stopping before send. Pipeline ran successfully.");
-    return { companies: companies.length, contacts: contacts.length, enriched: dedupedContacts.length, results: [] };
+    return { companies: companies.length, contacts: dedupedContacts.length, results: [] };
   }
 
   const confirmed = await onBeforeSend(dedupedContacts);
   if (!confirmed) {
     console.log("  Aborted by user.");
-    return { companies: companies.length, contacts: contacts.length, enriched: dedupedContacts.length, results: [] };
+    return { companies: companies.length, contacts: dedupedContacts.length, results: [] };
   }
 
-  // ── Stage 4: Brevo ─────────────────────────────────────────────────────────
-  console.log("\n━━━ Stage 4 / Brevo — sending emails ━━━");
+  // ── Stage 3: Brevo ─────────────────────────────────────────────────────────
+  console.log("\n━━━ Stage 3 / Brevo — sending personalized emails ━━━");
   const results = await sendEmails(dedupedContacts);
 
   const sent = results.filter((r) => r.status === "sent").length;
   const failed = results.filter((r) => r.status === "failed").length;
   console.log(`  → ${sent} sent, ${failed} failed`);
 
-  return { companies: companies.length, contacts: contacts.length, enriched: dedupedContacts.length, results };
+  return { companies: companies.length, contacts: dedupedContacts.length, results };
 }

@@ -66,7 +66,6 @@ program
       console.log("\n━━━ Pipeline complete ━━━");
       console.log(`  Companies   : ${result.companies}`);
       console.log(`  Contacts    : ${result.contacts}`);
-      console.log(`  With emails : ${result.enriched}`);
       console.log(`  Sent        : ${result.results.filter((r) => r.status === "sent").length}`);
       console.log(`  Failed      : ${result.results.filter((r) => r.status === "failed").length}\n`);
     } catch (err) {

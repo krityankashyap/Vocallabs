@@ -25,24 +25,25 @@ export function renderEmailHtml(contact: Contact, senderName: string): string {
   <p>Hi ${firstName},</p>
 
   <p>
-    I've been following ${capitalised}'s work — the way you're approaching
-    [specific pain point in their space] stands out.
+    I've been following ${capitalised}'s work — shipping fast without ballooning
+    the team is genuinely hard, and it looks like you're navigating that well.
   </p>
 
   <p>
     I'm ${senderName}, and at Vocallabs we help ${contact.title}-level leaders
-    cut the time between "idea" and "live product" dramatically — without growing
-    the team. A few companies similar to yours have shaved weeks off their
-    release cycles in the first month.
+    cut the time between "idea" and "live product" by building AI-powered
+    automations that do the heavy lifting without adding headcount. Companies
+    at your stage typically see a meaningful drop in release cycle time within
+    the first few weeks.
   </p>
 
   <p>
-    Worth a 15-minute call to see if there's a fit? I'll keep it tight and
-    come with something concrete for ${capitalised} specifically.
+    Worth a 15-minute call to see if there's a fit? I'll come prepared with
+    something specific to ${capitalised} — not a generic deck.
   </p>
 
   <p>
-    Happy to work around your schedule — just reply and I'll send a link.
+    Just reply and I'll send a calendar link that works around your schedule.
   </p>
 
   <p>
@@ -61,25 +62,26 @@ export function renderEmailText(contact: Contact, senderName: string): string {
   return [
     `Hi ${firstName},`,
     ``,
-    `I've been following ${capitalised}'s work — the way you're approaching`,
-    `[specific pain point in their space] stands out.`,
+    `I've been following ${capitalised}'s work — shipping fast without ballooning`,
+    `the team is genuinely hard, and it looks like you're navigating that well.`,
     ``,
     `I'm ${senderName}, and at Vocallabs we help ${contact.title}-level leaders`,
-    `cut the time between "idea" and "live product" dramatically — without growing`,
-    `the team. A few companies similar to yours have shaved weeks off their`,
-    `release cycles in the first month.`,
+    `cut the time between "idea" and "live product" by building AI-powered`,
+    `automations that do the heavy lifting without adding headcount. Companies`,
+    `at your stage typically see a meaningful drop in release cycle time within`,
+    `the first few weeks.`,
     ``,
-    `Worth a 15-minute call to see if there's a fit? I'll keep it tight and`,
-    `come with something concrete for ${capitalised} specifically.`,
+    `Worth a 15-minute call to see if there's a fit? I'll come prepared with`,
+    `something specific to ${capitalised} — not a generic deck.`,
     ``,
-    `Happy to work around your schedule — just reply and I'll send a link.`,
+    `Just reply and I'll send a calendar link that works around your schedule.`,
     ``,
     `Best,`,
     senderName,
   ].join("\n");
 }
 
-// ── Stage 4 ────────────────────────────────────────────────────────────────────
+// ── Stage 3 ────────────────────────────────────────────────────────────────────
 
 export async function sendEmails(contacts: Contact[]): Promise<SendResult[]> {
   const api = new TransactionalEmailsApi();

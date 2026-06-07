@@ -9,7 +9,6 @@ function require(key: string): string {
 export interface Config {
   oceanApiToken: string;
   prospeoApiKey: string;
-  eazyreachApiKey: string;
   brevoApiKey: string;
   brevoSenderName: string;
   brevoSenderEmail: string;
@@ -19,7 +18,6 @@ function loadConfig(): Config {
   const keys: Array<[keyof Config, string]> = [
     ["oceanApiToken", "OCEAN_API_TOKEN"],
     ["prospeoApiKey", "PROSPEO_API_KEY"],
-    ["eazyreachApiKey", "EAZYREACH_API_KEY"],
     ["brevoApiKey", "BREVO_API_KEY"],
     ["brevoSenderName", "BREVO_SENDER_NAME"],
     ["brevoSenderEmail", "BREVO_SENDER_EMAIL"],

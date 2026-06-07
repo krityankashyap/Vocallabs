@@ -10,11 +10,11 @@ export interface Contact {
   title: string;
   linkedinUrl: string;
   domain: string;
-  /** Populated by Stage 3 (Eazyreach) */
+  /** Populated by Stage 2 (Prospeo enrich-person) */
   email?: string;
 }
 
-// ── Stage 4 output ────────────────────────────────────────────────────────────
+// ── Stage 3 output ────────────────────────────────────────────────────────────
 export type SendResult =
   | { status: "sent"; contact: Contact; messageId: string }
   | { status: "failed"; contact: Contact; error: string };
